@@ -22,10 +22,9 @@ API_TOKEN = '8245244001:AAEDmWAXRk7U-YG36gXeDJL2eEbbJs2dJNA'
 ADMINS = [8149275394, 1936430807]
 UPI_ID = 'BHARATPE09910027091@yesbankltd'
 CHANNEL_LINK = 'https://t.me/+O27nU16V5VszYjg1'
-# Is ID ko tabhi use karein agar bot us channel mein Admin hai
-CHANNEL_ID = -1002345678901  # Yahan apne channel ki numeric ID dalein (optional par behtar hai)
 
-# --- IMAGE IDs ---
+# --- IMAGE IDs (WAPAS ADD KIYA) ---
+IMG_FORCE_JOIN = "6ktKOox5WgWoCO_G9gHk-_IUHDyQk1t3uycUC4KOKrLEc5bV-28YG9k_z-r5UNG8"
 IMG_START_MENU = "6ktKOox5WgWoCO_G9gHk-_RosAwQw-msNj_A2GBVlAIWZ4bGLo4G2gr7uGyB1W8r"
 
 logging.basicConfig(level=logging.INFO)
@@ -44,77 +43,62 @@ async def delete_after_delay(chat_id, message_id, delay, alert=None):
     await asyncio.sleep(delay)
     try:
         await bot.delete_message(chat_id, message_id)
-        if alert:
-            await bot.send_message(chat_id, alert)
+        if alert: await bot.send_message(chat_id, alert)
     except: pass
-
-# --- FORCE JOIN CHECKER ---
-async def check_user_joined(user_id):
-    # Note: Private channel ke liye numeric ID ya bot ka admin hona zaroori hai
-    # Agar bot error de, toh check karein ki bot channel mein admin hai ya nahi
-    try:
-        # Yahan hum link ki jagah numeric ID ya username use karte hain
-        # Kyunki private link check karne ke liye bot admin hona chahiye
-        member = await bot.get_chat_member(chat_id='@your_channel_username', user_id=user_id) 
-        if member.status in ['member', 'administrator', 'creator']:
-            return True
-    except:
-        return False
-    return False
 
 # --- START COMMAND ---
 @dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
     user_id = message.from_user.id
-    
-    # 1. Force Join Check
-    # Agar aapne bot ko admin banaya hai toh ye logic kaam karega
-    # Filhal hum ise simplified button interface de rahe hain
-    kb_join = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK))
-    kb_join.add(InlineKeyboardButton("🔄 Verify / Start", callback_data="check_join"))
-
-    # 2. Shared File Logic
     args = message.get_args()
+
+    # Join Buttons & Captions
+    kb_join = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK))
+    kb_join.add(InlineKeyboardButton("🔄 Verify Membership", callback_data="check_join"))
+
     if args and args.startswith('file_'):
         cursor.execute("SELECT expiry_time FROM users WHERE user_id=?", (user_id,))
         if not cursor.fetchone():
-            return await message.answer("❌ Join channel and Buy Premium to access!", reply_markup=kb_join)
+            return await bot.send_photo(user_id, IMG_FORCE_JOIN, 
+                                      caption="❌ **Premium Content!**\n\nPehle channel join karein aur membership lein.", 
+                                      reply_markup=kb_join)
         
         f_key = args.replace('file_', '')
-        cursor.execute("SELECT data, type FROM files WHERE file_id=?", (f_key,))
+        cursor.execute("SELECT data FROM files WHERE file_id=?", (f_key,))
         file_data = cursor.fetchone()
         if file_data:
-            msg = await message.answer(f"✅ Your Content: {file_data[0]}\n\n⚠️ Will delete in 10 mins.")
-            asyncio.create_task(delete_after_delay(user_id, msg.message_id, 600, "🗑️ Premium content deleted!"))
+            msg = await message.answer(f"✅ **Premium Content:** {file_data[0]}\n\n⚠️ Yeh link 10 minute mein delete ho jayega.")
+            asyncio.create_task(delete_after_delay(user_id, msg.message_id, 600, "🗑️ Link delete kar diya gaya hai."))
         return
 
-    # Normal Start
+    # Start Menu with Photo & Caption
     try:
         await bot.send_photo(user_id, IMG_START_MENU, 
-                             caption=f"Hello {message.from_user.first_name}!\n\nJoin our channel to use this bot.", 
+                             caption=f"👋 Hello {message.from_user.first_name}!\n\nWelcome to our Premium Bot. Join our channel to unlock all features.", 
                              reply_markup=kb_join)
     except:
-        await message.answer(f"Hello {message.from_user.first_name}!\n\nJoin our channel to continue.", reply_markup=kb_join)
+        await message.answer(f"Hello {message.from_user.first_name}! Join channel to continue.", reply_markup=kb_join)
 
 # --- CALLBACKS ---
 @dp.callback_query_handler(lambda c: c.data == "check_join")
-async def verify_user(callback: types.CallbackQuery):
-    # Is button se user membership buy karne ke menu par jayega
+async def verify(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium"))
-    await callback.message.answer("✅ Verification success! Now you can buy premium.", reply_markup=kb)
+    await callback.message.answer("✅ **Verification Success!**\n\nAb aap premium plans dekh sakte hain.", reply_markup=kb)
     await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data == "buy_premium")
 async def buy_menu(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💳 Pay ₹20 (1 Day)", callback_data="pay_20_1"))
-    await callback.message.answer("✦ Premium Plans:\n1 Day: ₹20\n\nPay to get instant access.", reply_markup=kb)
+    await callback.message.answer("💎 **Premium Plan:**\n\n• 1 Day Access: ₹20\n\nInstant access ke liye UPI karein.", reply_markup=kb)
 
 @dp.callback_query_handler(lambda c: c.data.startswith('pay_'))
 async def qr_handler(callback: types.CallbackQuery):
     _, price, days = callback.data.split('_')
     upi_url = f"upi://pay?pa={UPI_ID}&am={price}"
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={upi_url}"
-    qr_msg = await bot.send_photo(callback.from_user.id, qr_url, caption=f"💰 Pay ₹{price}\n\n⚠️ QR deletes in 15 mins.")
+    
+    qr_msg = await bot.send_photo(callback.from_user.id, qr_url, 
+                                 caption=f"💰 **Amount: ₹{price}**\n\n⚠️ QR Code 15 min mein delete hoga. Payment ke baad screenshot bhein.")
     asyncio.create_task(delete_after_delay(callback.from_user.id, qr_msg.message_id, 900, "⌛ QR Expired!"))
 
 if __name__ == '__main__':
