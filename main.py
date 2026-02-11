@@ -1,7 +1,6 @@
 import logging
 import sqlite3
 import asyncio
-import uuid
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
 from aiogram.utils import executor
@@ -23,147 +22,79 @@ API_TOKEN = '8245244001:AAEDmWAXRk7U-YG36gXeDJL2eEbbJs2dJNA'
 ADMINS = [8149275394, 1936430807]
 UPI_ID = 'BHARATPE09910027091@yesbankltd'
 
-# Screenshots wali Images
-WELCOME_PHOTO = "https://telegra.ph/file/de2063065183887709335.jpg"
-PLAN_PHOTO = "https://telegra.ph/file/de2063065183887709335.jpg" 
+# --- IMAGE IDs ---
+IMG_START_MENU = "6ktKOox5WgWoCO_G9gHk-_RosAwQw-msNj_A2GBVlAIWZ4bGLo4G2gr7uGyB1W8r"
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 
-# Database Setup
-conn = sqlite3.connect('premium_bot.db', check_same_thread=False)
-cursor = conn.cursor()
-cursor.execute('''CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, expiry_time TIMESTAMP)''')
-cursor.execute('''CREATE TABLE IF NOT EXISTS plans (plan_id TEXT PRIMARY KEY, name TEXT, days INTEGER, price INTEGER)''')
-conn.commit()
+# --- AUTO DELETE FUNCTIONS ---
 
-def get_setting(key, default):
-    cursor.execute("SELECT value FROM settings WHERE key=?", (key,))
-    res = cursor.fetchone()
-    return res[0] if res else default
+async def delete_after_delay(chat_id, message_id, delay, alert_text=None):
+    """Nirdharit samay ke baad message delete karne ke liye"""
+    await asyncio.sleep(delay)
+    try:
+        await bot.delete_message(chat_id, message_id)
+        if alert_text:
+            await bot.send_message(chat_id, alert_text)
+    except Exception as e:
+        logging.error(f"Error deleting message: {e}")
 
-# --- EXPIRY CHECKER ---
-async def expiry_checker():
-    while True:
-        now = datetime.now()
-        one_hour_later = now + timedelta(hours=1)
-        cursor.execute("SELECT user_id FROM users WHERE expiry_time <= ? AND expiry_time > ?", (one_hour_later, now))
-        for user in cursor.fetchall():
-            try:
-                await bot.send_message(user[0], "››⚠️ Reminder: Your premium membership will expire in 1 hour.\n\nTo renew your premium membership, please Contact Our Admins.")
-            except: pass
-        cursor.execute("SELECT user_id FROM users WHERE expiry_time <= ?", (now,))
-        for user in cursor.fetchall():
-            try:
-                await bot.send_message(user[0], "❌ Your Membership has Expired. Please renew to continue.")
-                cursor.execute("DELETE FROM users WHERE user_id=?", (user[0],))
-                conn.commit()
-            except: pass
-        await asyncio.sleep(600)
-
-# --- START COMMAND ---
+# --- START COMMAND (Handling Shared Links with Auto-Delete) ---
 @dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
     user_id = message.from_user.id
-    f_join = get_setting('f_join', 'None')
-    if f_join != 'None':
-        try:
-            member = await bot.get_chat_member(f_join, user_id)
-            if member.status in ['left', 'kicked']:
-                kb = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=f"https://t.me/{f_join.replace('@','')}"))
-                kb.add(InlineKeyboardButton("🔄 Verify Membership", callback_data="check_join"))
-                return await bot.send_photo(user_id, WELCOME_PHOTO, caption=f"⚠️ **Access Denied!**\n\nPlease join our channel {f_join} to use this bot.", reply_markup=kb)
-        except: pass
+    args = message.get_args()
 
-    welcome_text = f"Hello {message.from_user.full_name}\n\nI can store private files in Specified Channel and other users can access it from special link."
-    kb = InlineKeyboardMarkup(row_width=2).add(
-        InlineKeyboardButton("⭐ PREMIUM", callback_data="show_plans"),
-        InlineKeyboardButton("👨‍💻 ADMIN", callback_data="admin_info"),
-        InlineKeyboardButton("⌛ Help Menu", callback_data="help"),
-        InlineKeyboardButton("🔒 CLOSE", callback_data="close"),
-        InlineKeyboardButton("🤖 DEVELOPER", url="https://t.me/your_handle")
-    )
-    await bot.send_photo(user_id, WELCOME_PHOTO, caption=welcome_text, reply_markup=kb)
+    if args and args.startswith('file_'):
+        # Check Membership
+        conn = sqlite3.connect('premium_bot.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT expiry_time FROM users WHERE user_id=?", (user_id,))
+        is_premium = cursor.fetchone()
+        
+        if not is_premium:
+            kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium"))
+            return await bot.send_photo(user_id, IMG_START_MENU, caption="❌ Access Denied! Buy membership to see this.", reply_markup=kb)
+        
+        # Premium Content Delivery
+        f_key = args.replace('file_', '')
+        cursor.execute("SELECT data, type FROM files WHERE file_id=?", (f_key,))
+        file_data = cursor.fetchone()
+        conn.close()
 
-# --- PLANS MENU (Fixed Syntax) ---
-@dp.callback_query_handler(lambda c: c.data in ["show_plans", "check_join"])
-async def show_plans(callback: types.CallbackQuery):
-    cursor.execute("SELECT plan_id, name, price FROM plans")
-    all_plans = cursor.fetchall()
-    
-    plan_text = "✦ **SHORTNER PLANS**\n\n**DURATION & PRICE**\n"
-    kb = InlineKeyboardMarkup(row_width=2)
-    for p_id, name, price in all_plans:
-        plan_text += f"›› {name} : ₹{price}\n"
-        kb.insert(InlineKeyboardButton(name.upper(), callback_data=f"pay_{p_id}"))
-    
-    plan_text += "\n❒ **PAYMENT METHODS**\n❒ paytm • gpay • phone pay • upi and qr"
-    plan_text += "\n\n✦ PREMIUM WILL BE ADDED AUTOMATICALLY ONCE PAID"
-    plan_text += "\n\n✦ **AFTER PAYMENT:**\n❒ SEND A SCREENSHOT & WAIT A FEW MINUTES FOR ACTIVATION ✓"
-    
-    kb.add(InlineKeyboardButton("✨ Custom Plan ✨", callback_data="custom"), InlineKeyboardButton("‹ Back", callback_data="start_again"))
-    await bot.send_photo(callback.from_user.id, PLAN_PHOTO, caption=plan_text, reply_markup=kb, parse_mode="Markdown")
-    await callback.message.delete()
+        if file_data:
+            sent_msg = None
+            alert_msg = "⚠️ Suraksha kaaranon se, yeh link/file 10 minute mein delete kar di jayegi."
+            
+            if file_data[1] == 'url':
+                sent_msg = await message.answer(f"🔗 **Your Premium Link:**\n{file_data[0]}\n\n{alert_msg}")
+            else:
+                sent_msg = await bot.send_photo(user_id, file_data[0], caption=f"✅ **Premium Content**\n\n{alert_msg}")
+            
+            # 10 Minute (600 seconds) baad delete
+            if sent_msg:
+                asyncio.create_task(delete_after_delay(user_id, sent_msg.message_id, 600, "🗑️ Premium link/file 10 minute poore hone par delete kar di gayi hai."))
+        return
 
-# --- PAYMENT QR ---
+    # Normal Start
+    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium"))
+    await bot.send_photo(user_id, IMG_START_MENU, caption=f"Hello {message.from_user.first_name}, Welcome!", reply_markup=kb)
+
+# --- QR GENERATOR (With 15 Min Auto-Delete) ---
 @dp.callback_query_handler(lambda c: c.data.startswith('pay_'))
 async def generate_qr(callback: types.CallbackQuery):
-    p_id = callback.data.split('_')[1]
-    cursor.execute("SELECT name, price FROM plans WHERE plan_id=?", (p_id,))
-    name, price = cursor.fetchone()
-    trx_id = f"TRX{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:4].upper()}"
-    upi_url = f"upi://pay?pa={UPI_ID}&am={price}&tn=Premium_{p_id}"
+    _, price, days = callback.data.split('_')
+    upi_url = f"upi://pay?pa={UPI_ID}&am={price}&tn=Premium_{days}Days"
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={upi_url}"
     
-    caption = (f"✦ **PREMIUM PAYMENT**\n\n❒ **Amount:** ₹{price}\n≡ **Validity:** {name}\n"
-               f"❒ **Transaction ID:** `{trx_id}`\n\n≡ **SCAN THIS QR WITH ANY UPI APP TO PAY.**\n\n"
-               f"✦ **OR tap here to pay directly**\n›› [Pay ₹{price} via UPI]({upi_url})\n\n"
-               f"✦ PREMIUM WILL BE ADDED AUTOMATICALLY IF PAID WITHIN 5 MINUTES...")
+    caption = f"💰 **Amount:** ₹{price}\n✅ Scan QR to pay\n\n⚠️ Yeh QR code 15 minute mein expire ho jayega."
+    qr_msg = await bot.send_photo(callback.from_user.id, qr_url, caption=caption)
     
-    kb = InlineKeyboardMarkup().add(InlineKeyboardButton("📲 Send Screenshot", callback_data="upload_proof"))
-    kb.add(InlineKeyboardButton("❌ CANCEL", callback_data="show_plans"))
-    await bot.send_photo(callback.from_user.id, qr_url, caption=caption, reply_markup=kb, parse_mode="Markdown")
+    # 15 Minute (900 seconds) baad delete
+    asyncio.create_task(delete_after_delay(callback.from_user.id, qr_msg.message_id, 900, "⌛ Samay samapt! QR code expire hone ke kaaran delete kar diya gaya hai."))
 
-# --- PHOTO HANDLER ---
-@dp.message_handler(content_types=['photo'])
-async def handle_photo(message: types.Message):
-    photo_id = message.photo[-1].file_id
-    if message.from_user.id in ADMINS:
-        return await message.answer(f"🖼 **Admin, Photo ID:**\n\n`{photo_id}`")
-
-    await message.answer("✅ premium membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 3 Hours (Max)\n\n🟢 You will be notified automatically once funds are added.")
-    
-    cursor.execute("SELECT plan_id, name FROM plans")
-    all_plans = cursor.fetchall()
-    for admin in ADMINS:
-        kb = InlineKeyboardMarkup(row_width=2)
-        for p_id, p_name in all_plans:
-            kb.insert(InlineKeyboardButton(f"Approve {p_name} ✅", callback_data=f"app_{p_id}_{message.from_user.id}"))
-        kb.add(InlineKeyboardButton("Reject ❌", callback_data=f"rej_0_{message.from_user.id}"))
-        await bot.send_photo(admin, photo_id, caption=f"New Payment from {message.from_user.id}", reply_markup=kb)
-
-# --- ADMIN CMDS ---
-@dp.message_handler(commands=['admin'])
-async def admin_panel(message: types.Message):
-    if message.from_user.id not in ADMINS: return
-    kb = InlineKeyboardMarkup(row_width=2).add(
-        InlineKeyboardButton("➕ Add Plan", callback_data="adm_add"),
-        InlineKeyboardButton("🗑 Delete Plan", callback_data="adm_del"),
-        InlineKeyboardButton("🔗 Set Link", callback_data="adm_link"),
-        InlineKeyboardButton("📢 Set F-Join", callback_data="adm_fjoin")
-    )
-    await message.answer("⚙️ **Admin Control Panel**", reply_markup=kb)
-
-@dp.callback_query_handler(lambda c: c.data.startswith(('app_', 'rej_')))
-async def admin_approval(callback: types.CallbackQuery):
-    if callback.from_user.id not in ADMINS: return
-    act, p_id, uid = callback.data.split('_')
-    if act == 'app':
-        cursor.execute("SELECT days, name FROM plans WHERE plan_id=?", (p_id,))
-        days, plan_name = cursor.fetchone()
-        expiry = datetime.now() + timedelta(days=days)
-        cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?)", (uid, expiry))
-        conn.commit()
-        await bot.send_message(uid, f"✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ ғᴏ
+if __name__ == '__main__':
+    keep_alive()
+    executor.start_polling(dp, skip_updates=True)
