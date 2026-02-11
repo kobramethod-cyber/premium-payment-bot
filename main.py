@@ -22,7 +22,7 @@ API_TOKEN = '8245244001:AAEDmWAXRk7U-YG36gXeDJL2eEbbJs2dJNA'
 ADMINS = [8149275394, 1936430807]
 UPI_ID = 'BHARATPE09910027091@yesbankltd'
 
-# --- IMAGE IDs (Corrected) ---
+# --- IMAGE IDs ---
 IMG_FORCE_JOIN = "6ktKOox5WgWoCO_G9gHk-_IUHDyQk1t3uycUC4KOKrLEc5bV-28YG9k_z-r5UNG8"
 IMG_START_MENU = "6ktKOox5WgWoCO_G9gHk-_RosAwQw-msNj_A2GBVlAIWZ4bGLo4G2gr7uGyB1W8r"
 IMG_PREMIUM_INFO = "6ktKOox5WgWoCO_G9gHk-0I8ckMM7pE26WyuOUC43SLCnUZakTDd2EMs2mnKaguH"
@@ -91,9 +91,9 @@ async def start_cmd(message: types.Message):
         if file_data:
             alert = "⚠️ Yeh content 10 minute mein delete ho jayega."
             if file_data[1] == 'url':
-                msg = await message.answer(f"🔗 **Your Link:** {file_data[0]}\n\n{alert}")
+                msg = await message.answer(f"🔗 Your Link: {file_data[0]}\n\n{alert}")
             else:
-                msg = await bot.send_photo(user_id, file_data[0], caption=f"✅ **Premium Content**\n\n{alert}")
+                msg = await bot.send_photo(user_id, file_data[0], caption=f"✅ Premium Content\n\n{alert}")
             asyncio.create_task(delete_after_delay(user_id, msg.message_id, 600, "🗑️ Link/File deleted after 10 mins."))
         return
 
@@ -118,8 +118,18 @@ async def menu_handler(callback: types.CallbackQuery):
         kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💳 Pay with UPI", callback_data="pay_upi_list"))
         await bot.send_photo(callback.from_user.id, IMG_PREMIUM_INFO, caption=caption, reply_markup=kb)
     elif callback.data == "pay_upi_list":
-        caption = "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\n›› 1 days : ₹20\n›› 7 Days : ₹50\n›› 15 days : ₹120\n›› 1 Months : ₹200\n\n❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ ᴀғᴛᴇʀ ᴘᴀʏᴍᴇɴᴛ ✓"
+        caption = "✦ SHORTNER PLANS\n›› 1 days : ₹20\n›› 7 Days : ₹50\n›› 15 days : ₹120\n›› 1 Months : ₹200\n\n**AFTER PAYMENT:**\nSEND A SCREENSHOT & WAIT ✓"
         kb = InlineKeyboardMarkup(row_width=2).add(
             InlineKeyboardButton("1 DAY", callback_data="pay_20_1"),
             InlineKeyboardButton("7 DAY", callback_data="pay_50_7"),
-            InlineKeyboardButton("15 DAY", callback_data
+            InlineKeyboardButton("15 DAY", callback_data="pay_120_15"),
+            InlineKeyboardButton("1 MONTH", callback_data="pay_200_30")
+        )
+        await bot.send_photo(callback.from_user.id, IMG_PLANS_LIST, caption=caption, reply_markup=kb)
+    await callback.message.delete()
+
+@dp.callback_query_handler(lambda c: c.data.startswith('pay_'))
+async def qr_handler(callback: types.CallbackQuery):
+    _, price, days = callback.data.split('_')
+    upi_url = f"upi://pay?pa={UPI_ID}&am={price}&tn=Premium_{days}Days"
+    qr_url = f"https://api.qr
