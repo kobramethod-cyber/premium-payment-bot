@@ -73,17 +73,16 @@ async def start_cmd(message: types.Message):
     cursor.execute("INSERT OR IGNORE INTO all_users VALUES (?)", (user_id,))
     conn.commit()
 
-    # Force Join
     kb_fjoin = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK))
     kb_fjoin.add(InlineKeyboardButton("🔄 Verify / Start", callback_data="check_join"))
     fjoin_text = f"Hello {name}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel."
 
-    # Shared File Logic
     args = message.get_args()
     if args and args.startswith('file_'):
         cursor.execute("SELECT expiry_time FROM users WHERE user_id=?", (user_id,))
         if not cursor.fetchone():
-            return await bot.send_photo(user_id, IMG_FORCE_JOIN, caption=fjoin_text, reply_markup=kb_fjoin)
+            try: return await bot.send_photo(user_id, IMG_FORCE_JOIN, caption=fjoin_text, reply_markup=kb_fjoin)
+            except: return await message.answer(fjoin_text, reply_markup=kb_fjoin)
         
         f_key = args.replace('file_', '')
         cursor.execute("SELECT data FROM files WHERE file_id=?", (f_key,))
@@ -93,12 +92,9 @@ async def start_cmd(message: types.Message):
             asyncio.create_task(delete_after_delay(user_id, msg.message_id, 600))
         return
 
-    # Normal Start
     kb_start = InlineKeyboardMarkup().add(InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium"))
-    try:
-        await bot.send_photo(user_id, IMG_START_MENU, caption=f"Hello {name}, Welcome!", reply_markup=kb_start)
-    except:
-        await message.answer(f"Hello {name}, Welcome!", reply_markup=kb_start)
+    try: await bot.send_photo(user_id, IMG_START_MENU, caption=f"Hello {name}, Welcome!", reply_markup=kb_start)
+    except: await message.answer(f"Hello {name}, Welcome!", reply_markup=kb_start)
 
 # --- PREMIUM FLOW ---
 @dp.callback_query_handler(lambda c: c.data == "buy_premium")
@@ -140,7 +136,7 @@ async def send_qr(callback: types.CallbackQuery):
 @dp.message_handler(content_types=['photo', 'text'])
 async def handle_all(message: types.Message):
     user_id = message.from_user.id
-    if user_id in ADMINS and message.text and "t.me" in message.text:
+    if user_id in ADMINS and message.text and ("t.me" in message.text or "http" in message.text):
         f_id = str(datetime.now().timestamp()).replace('.','')
         cursor.execute("INSERT INTO files VALUES (?, ?)", (f_id, message.text))
         conn.commit()
@@ -150,7 +146,8 @@ async def handle_all(message: types.Message):
         await message.answer("✅ premium membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 3 Hours (Max)")
         for adm in ADMINS:
             kb = InlineKeyboardMarkup().add(
-                InlineKeyboardButton("✅ Approve", callback_data=f"app_30_{user_id}"),
+                InlineKeyboardButton("✅ Approve 1 Day", callback_data=f"app_1_{user_id}"),
+                InlineKeyboardButton("✅ Approve 30 Day", callback_data=f"app_30_{user_id}"),
                 InlineKeyboardButton("❌ Reject", callback_data=f"rej_{user_id}")
             )
             await bot.send_photo(adm, message.photo[-1].file_id, caption=f"Payment from {user_id}", reply_markup=kb)
@@ -161,12 +158,17 @@ async def approval_logic(callback: types.CallbackQuery):
     if data[0] == "app":
         days, uid = int(data[1]), data[2]
         exp = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?, 0)", (uid, exp))
+        cursor.execute("INSERT OR REPLACE INTO users (user_id, expiry_time, reminded) VALUES (?, ?, 0)", (uid, exp))
         conn.commit()
         await bot.send_message(uid, "✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ!\n💎 Eɴᴊᴏʏ ʏᴏᴜʀ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss!")
     elif data[0] == "rej":
         await bot.send_message(data[1], "❌ Your payment proof was rejected. Please send a valid screenshot.")
     await callback.message.delete()
+    await callback.answer("Done!")
+
+@dp.callback_query_handler(lambda c: c.data == "check_join")
+async def check_join_callback(callback: types.CallbackQuery):
+    await callback.answer("Wait... bot is re-checking. Try /start again in 5s.", show_alert=True)
 
 if __name__ == '__main__':
     keep_alive()
