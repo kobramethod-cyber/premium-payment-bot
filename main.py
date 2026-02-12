@@ -21,8 +21,9 @@ def keep_alive():
 API_TOKEN = '8245244001:AAEDmWAXRk7U-YG36gXeDJL2eEbbJs2dJNA'
 ADMINS = [8149275394, 1936430807]
 UPI_ID = 'BHARATPE09910027091@yesbankltd'
+CHANNEL_LINK = 'https://t.me/+O27nU16V5VszYjg1'
 
-# IMAGE IDs (Verify these from BotFather if images don't load)
+# IMAGE IDs
 IMG_FORCE_JOIN = "6ktKOox5WgWoCO_G9gHk-_IUHDyQk1t3uycUC4KOKrLEc5bV-28YG9k_z-r5UNG8"
 IMG_START_MENU = "6ktKOox5WgWoCO_G9gHk-_RosAwQw-msNj_A2GBVlAIWZ4bGLo4G2gr7uGyB1W8r"
 
@@ -36,19 +37,7 @@ cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, expiry_time TEXT, reminded INTEGER DEFAULT 0)')
 cursor.execute('CREATE TABLE IF NOT EXISTS all_users (user_id INTEGER PRIMARY KEY)')
 cursor.execute('CREATE TABLE IF NOT EXISTS files (file_id TEXT PRIMARY KEY, data TEXT)')
-cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
-cursor.execute('CREATE TABLE IF NOT EXISTS plans (days INTEGER PRIMARY KEY, price INTEGER)')
-
-# Default Settings
-cursor.execute("INSERT OR IGNORE INTO settings VALUES ('f_join', 'https://t.me/+O27nU16V5VszYjg1')")
-cursor.execute("INSERT OR IGNORE INTO plans VALUES (1, 20), (7, 50), (15, 120), (30, 200)")
 conn.commit()
-
-# --- HELPERS ---
-def get_fjoin():
-    cursor.execute("SELECT value FROM settings WHERE key='f_join'")
-    res = cursor.fetchone()
-    return res[0] if res else "https://t.me/+O27nU16V5VszYjg1"
 
 async def delete_after_delay(chat_id, message_id, delay):
     await asyncio.sleep(delay)
@@ -80,88 +69,103 @@ async def expiry_checker():
 @dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
     user_id = message.from_user.id
+    name = message.from_user.first_name
     cursor.execute("INSERT OR IGNORE INTO all_users VALUES (?)", (user_id,))
     conn.commit()
-    
-    f_link = get_fjoin()
-    kb_fjoin = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=f_link))
+
+    # Force Join
+    kb_fjoin = InlineKeyboardMarkup().add(InlineKeyboardButton("📢 Join Channel", url=CHANNEL_LINK))
     kb_fjoin.add(InlineKeyboardButton("🔄 Verify / Start", callback_data="check_join"))
-    
+    fjoin_text = f"Hello {name}\n\nYou need to join in my Channel/Group to use me\n\nKindly Please join Channel."
+
+    # Shared File Logic
     args = message.get_args()
     if args and args.startswith('file_'):
         cursor.execute("SELECT expiry_time FROM users WHERE user_id=?", (user_id,))
         if not cursor.fetchone():
-            return await bot.send_photo(user_id, IMG_FORCE_JOIN, caption=f"Hello {message.from_user.first_name}\n\nYou need to join in my Channel/Group to use me.", reply_markup=kb_fjoin)
+            return await bot.send_photo(user_id, IMG_FORCE_JOIN, caption=fjoin_text, reply_markup=kb_fjoin)
         
         f_key = args.replace('file_', '')
         cursor.execute("SELECT data FROM files WHERE file_id=?", (f_key,))
         res = cursor.fetchone()
         if res:
-            msg = await message.answer(f"✅ Your Premium Link: {res[0]}\n\n⚠️ Deleting in 10 mins.")
+            msg = await message.answer(f"✅ Your Content: {res[0]}\n\n⚠️ Deleting in 10 mins.")
             asyncio.create_task(delete_after_delay(user_id, msg.message_id, 600))
         return
 
+    # Normal Start
     kb_start = InlineKeyboardMarkup().add(InlineKeyboardButton("💎 BUY PREMIUM 💎", callback_data="buy_premium"))
-    await bot.send_photo(user_id, IMG_START_MENU, caption=f"Hello {message.from_user.first_name}, Welcome!", reply_markup=kb_start)
+    try:
+        await bot.send_photo(user_id, IMG_START_MENU, caption=f"Hello {name}, Welcome!", reply_markup=kb_start)
+    except:
+        await message.answer(f"Hello {name}, Welcome!", reply_markup=kb_start)
 
-# --- CALLBACKS ---
+# --- PREMIUM FLOW ---
 @dp.callback_query_handler(lambda c: c.data == "buy_premium")
 async def buy_step1(callback: types.CallbackQuery):
-    text = f"👋 Hello {callback.from_user.first_name}\n\n🎖️ Want Premium?\n\n› Choose a method below:\n\n• 💳 Pay with UPI (Instant activation)"
+    name = callback.from_user.first_name
+    text = f"👋 Hello {name}\n\n🎖️ Want Premium?\n\n› Choose a method below:\n\n• 💳 Pay with UPI (Instant activation)"
     kb = InlineKeyboardMarkup().add(InlineKeyboardButton("💳 Pay with UPI", callback_data="pay_upi_list"))
     await callback.message.edit_caption(caption=text, reply_markup=kb)
 
 @dp.callback_query_handler(lambda c: c.data == "pay_upi_list")
 async def show_plans(callback: types.CallbackQuery):
-    cursor.execute("SELECT days, price FROM plans ORDER BY days ASC")
-    rows = cursor.fetchall()
-    plan_text = "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\n────────────────────\n"
-    kb = InlineKeyboardMarkup(row_width=2)
-    for days, price in rows:
-        plan_text += f"›› {days} days : ₹{price}\n"
-        kb.insert(InlineKeyboardButton(f"{days} DAY", callback_data=f"pay_{price}_{days}"))
-    plan_text += "────────────────────\n✦ AFTER PAYMENT: Send Screenshot ✓"
-    await callback.message.edit_caption(caption=plan_text, reply_markup=kb)
+    text = (
+        "✦ 𝗦𝗛𝗢𝗥𝗧𝗡𝗘𝗥 𝗣𝗟𝗔𝗡𝗦\nᴅᴜʀᴀᴛɪᴏɴ & ᴘʀɪᴄᴇ\n"
+        "────────────────────\n"
+        "›› 1 days : ₹20\n›› 7 Days : ₹50\n›› 15 days : ₹120\n›› 1 Months : ₹200\n"
+        "❐ 𝗣𝗔𝗬𝗠𝗘𝗡𝗧 𝗠𝗘𝗧𝗛𝗢𝗗𝗦\n❐ 𝗉𝖺𝗒𝗍𝗆 • 𝗀𝗉𝖺𝗒 • 𝗉𝗁𝗈𝗇𝖾 𝗉𝖺𝗒 • 𝗎𝗉𝗂 𝖺𝗇𝖽 𝗊𝗋\n"
+        "────────────────────\n"
+        "✦ Pʀᴇᴍɪᴜᴍ ᴡɪʟʟ ʙᴇ ᴀᴅᴅᴇᴅ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ᴏɴᴄᴇ ᴘᴀɪᴅ\n"
+        "✦ 𝗔𝗙𝗧𝗘𝗥 𝗣𝗔𝗬𝗠𝗘𝗡𝗧:\n"
+        "❐ Sᴇɴᴅ ᴀ ꜱᴄʀᴇᴇɴꜱʜᴏᴛ & ᴡᴀɪᴛ ᴀ ꜰᴇᴡ ᴍɪɴᴜᴛᴇꜱ ғᴏʀ ᴀᴄᴛɪᴠᴀᴛɪᴏɴ ✓"
+    )
+    kb = InlineKeyboardMarkup(row_width=2).add(
+        InlineKeyboardButton("1 DAY", callback_data="pay_20_1"),
+        InlineKeyboardButton("7 DAY", callback_data="pay_50_7"),
+        InlineKeyboardButton("15 DAY", callback_data="pay_120_15"),
+        InlineKeyboardButton("30 DAY", callback_data="pay_200_30")
+    )
+    await callback.message.edit_caption(caption=text, reply_markup=kb)
 
 @dp.callback_query_handler(lambda c: c.data.startswith('pay_'))
 async def send_qr(callback: types.CallbackQuery):
     _, price, days = callback.data.split('_')
     upi_url = f"upi://pay?pa={UPI_ID}&am={price}"
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={upi_url}"
-    qr_msg = await bot.send_photo(callback.from_user.id, qr_url, caption=f"💰 Amount: ₹{price}\nPlan: {days} Days\n\n⚠️ QR deletes in 15 mins. Send screenshot.")
+    qr_msg = await bot.send_photo(callback.from_user.id, qr_url, caption=f"💰 Amount: ₹{price}\n\n⚠️ QR deletes in 15 mins. Send screenshot after pay.")
     asyncio.create_task(delete_after_delay(callback.from_user.id, qr_msg.message_id, 900))
 
-# --- SCREENSHOTS & ADMIN APPROVAL ---
+# --- SCREENSHOT & ADMIN ---
 @dp.message_handler(content_types=['photo', 'text'])
 async def handle_all(message: types.Message):
-    if message.from_user.id in ADMINS:
-        if message.text and ("t.me" in message.text or "http" in message.text):
-            f_id = str(datetime.now().timestamp()).replace('.','')
-            cursor.execute("INSERT INTO files VALUES (?, ?)", (f_id, message.text))
-            conn.commit()
-            return await message.answer(f"✅ Link Created: `https://t.me/{(await bot.get_me()).username}?start=file_{f_id}`")
+    user_id = message.from_user.id
+    if user_id in ADMINS and message.text and "t.me" in message.text:
+        f_id = str(datetime.now().timestamp()).replace('.','')
+        cursor.execute("INSERT INTO files VALUES (?, ?)", (f_id, message.text))
+        conn.commit()
+        return await message.answer(f"✅ Saved!\nLink: `https://t.me/{(await bot.get_me()).username}?start=file_{f_id}`")
 
     if message.photo:
-        await message.answer("✅ membership Request Submitted! Verifying...")
+        await message.answer("✅ premium membership Request Submitted!\n\n⚡ Your proof is being verified.\n📝 Status: Pending\n⏳ Time: 3 Hours (Max)")
         for adm in ADMINS:
             kb = InlineKeyboardMarkup().add(
-                InlineKeyboardButton("✅ Approve 1 Day", callback_data=f"app_1_{message.from_user.id}"),
-                InlineKeyboardButton("✅ Approve 30 Day", callback_data=f"app_30_{message.from_user.id}"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"rej_{message.from_user.id}")
+                InlineKeyboardButton("✅ Approve", callback_data=f"app_30_{user_id}"),
+                InlineKeyboardButton("❌ Reject", callback_data=f"rej_{user_id}")
             )
-            await bot.send_photo(adm, message.photo[-1].file_id, caption=f"Payment from {message.from_user.id}", reply_markup=kb)
+            await bot.send_photo(adm, message.photo[-1].file_id, caption=f"Payment from {user_id}", reply_markup=kb)
 
 @dp.callback_query_handler(lambda c: c.data.startswith(('app_', 'rej_')))
-async def approval(callback: types.CallbackQuery):
+async def approval_logic(callback: types.CallbackQuery):
     data = callback.data.split('_')
     if data[0] == "app":
         days, uid = int(data[1]), data[2]
         exp = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-        cursor.execute("INSERT OR REPLACE INTO users (user_id, expiry_time, reminded) VALUES (?, ?, 0)", (uid, exp))
+        cursor.execute("INSERT OR REPLACE INTO users VALUES (?, ?, 0)", (uid, exp))
         conn.commit()
-        await bot.send_message(uid, "✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ!")
-    else:
-        await bot.send_message(data[1], "❌ Your proof was rejected.")
+        await bot.send_message(uid, "✅ Pᴀʏᴍᴇɴᴛ Sᴜᴄᴄᴇssғᴜʟ!\n\n🎉 Pʀᴇᴍɪᴜᴍ ᴀᴄᴛɪᴠᴀᴛᴇᴅ!\n💎 Eɴᴊᴏʏ ʏᴏᴜʀ ᴘʀᴇᴍɪᴜᴍ ᴀᴄᴄᴇss!")
+    elif data[0] == "rej":
+        await bot.send_message(data[1], "❌ Your payment proof was rejected. Please send a valid screenshot.")
     await callback.message.delete()
 
 if __name__ == '__main__':
